@@ -2,9 +2,9 @@ const { WebSocketServer } = require('ws');
 const http = require('http');
 const net = require('net');
 
-const USER_ID = "1eb6f083-598d-462c-bd8d-1cbe80b551bc";   // دقیق کپی کن
+const USER_ID = "1eb6f083-598d-462c-bd8d-1cbe80b551bc";
 
-const camouflageHTML = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>OK</title></head><body style="text-align:center;margin-top:100px;background:#222;color:#0f0;"><h1>✅ VLESS Render Node Active</h1></body></html>`;
+const camouflageHTML = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>OK</title></head><body style="text-align:center;margin-top:100px;background:#111;color:#0f0;"><h1>✅ VLESS Active</h1></body></html>`;
 
 const server = http.createServer((req, res) => {
     res.writeHead(200, {'Content-Type': 'text/html'});
@@ -19,18 +19,24 @@ wss.on('connection', (ws) => {
     ws.on('message', (data) => {
         try {
             const buffer = new Uint8Array(data);
-            if (buffer[0] !== 0) return ws.close();
+            if (buffer.length < 18 || buffer[0] !== 0) {
+                console.log("Invalid VLESS header");
+                return ws.close();
+            }
 
-            // UUID validation - بهبود یافته
-            const incomingUUID = buffer.slice(1, 17).toString('hex');
-            const expectedUUID = USER_ID.replace(/-/g, '');
+            // UUID validation - روش قوی‌تر
+            const uuidHex = Array.from(buffer.slice(1, 17))
+                .map(b => b.toString(16).padStart(2, '0'))
+                .join('');
 
-            if (incomingUUID !== expectedUUID) {
+            const cleanUserID = USER_ID.replace(/-/g, '');
+
+            if (uuidHex !== cleanUserID) {
                 console.log("UUID mismatch");
                 return ws.close();
             }
 
-            console.log("UUID OK");
+            console.log("✅ UUID OK - Connection accepted");
 
             const optLen = buffer[17];
             const command = buffer[18 + optLen];
@@ -41,11 +47,14 @@ wss.on('connection', (ws) => {
             const addrType = buffer[idx++];
             let host = "";
 
-            if (addrType === 1) {
+            if (addrType === 1) { // IPv4
                 host = Array.from(buffer.slice(idx, idx+4)).join('.');
-            } else if (addrType === 2) {
+            } else if (addrType === 2) { // Domain
                 const len = buffer[idx++];
                 host = new TextDecoder().decode(buffer.slice(idx, idx + len));
+            } else if (addrType === 3) { // IPv6
+                // ساده‌سازی - فعلاً پشتیبانی نمی‌کنیم
+                return ws.close();
             }
 
             if (command !== 1) return ws.close();
