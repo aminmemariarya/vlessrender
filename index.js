@@ -7,7 +7,7 @@ const http = require('http');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-const USER_ID = "a67c0e13-611c-98f5-afd6-b1eb00000003";   // ← حتما تغییر بده
+const USER_ID = "1eb6f083-598d-462c-bd8d-1cbe80b551bc";   // ← حتما تغییر بده
 
 // صفحه偽装 برای درخواست‌های معمولی
 const camouflageHTML = `
