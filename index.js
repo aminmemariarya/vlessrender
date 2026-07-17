@@ -3,8 +3,9 @@ const http = require('http');
 const net = require('net');
 
 const USER_ID = "1eb6f083-598d-462c-bd8d-1cbe80b551bc";
+const cleanUUID = USER_ID.replace(/-/g, '');
 
-const camouflageHTML = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>OK</title></head><body style="text-align:center;margin-top:100px;background:#111;color:#0f0;"><h1>✅ VLESS Active</h1></body></html>`;
+const camouflageHTML = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>OK</title></head><body style="text-align:center;margin-top:100px;background:#111;color:#0f0;"><h1>✅ VLESS Render Node Active</h1></body></html>`;
 
 const server = http.createServer((req, res) => {
     res.writeHead(200, {'Content-Type': 'text/html'});
@@ -20,23 +21,20 @@ wss.on('connection', (ws) => {
         try {
             const buffer = new Uint8Array(data);
             if (buffer.length < 18 || buffer[0] !== 0) {
-                console.log("Invalid VLESS header");
-                return ws.close();
+                // console.log("Invalid header - ignoring");
+                return;
             }
 
-            // UUID validation - روش قوی‌تر
             const uuidHex = Array.from(buffer.slice(1, 17))
                 .map(b => b.toString(16).padStart(2, '0'))
                 .join('');
 
-            const cleanUserID = USER_ID.replace(/-/g, '');
-
-            if (uuidHex !== cleanUserID) {
+            if (uuidHex !== cleanUUID) {
                 console.log("UUID mismatch");
-                return ws.close();
+                return;
             }
 
-            console.log("✅ UUID OK - Connection accepted");
+            console.log("✅ UUID OK");
 
             const optLen = buffer[17];
             const command = buffer[18 + optLen];
@@ -47,17 +45,16 @@ wss.on('connection', (ws) => {
             const addrType = buffer[idx++];
             let host = "";
 
-            if (addrType === 1) { // IPv4
+            if (addrType === 1) {
                 host = Array.from(buffer.slice(idx, idx+4)).join('.');
-            } else if (addrType === 2) { // Domain
+            } else if (addrType === 2) {
                 const len = buffer[idx++];
                 host = new TextDecoder().decode(buffer.slice(idx, idx + len));
-            } else if (addrType === 3) { // IPv6
-                // ساده‌سازی - فعلاً پشتیبانی نمی‌کنیم
-                return ws.close();
+            } else {
+                return;
             }
 
-            if (command !== 1) return ws.close();
+            if (command !== 1) return;
 
             const target = net.connect(port, host, () => {
                 ws.send(new Uint8Array([0, 0]));
@@ -71,8 +68,7 @@ wss.on('connection', (ws) => {
             ws.on('close', () => target.destroy());
 
         } catch (e) {
-            console.error("Error:", e.message);
-            ws.close();
+            // silent
         }
     });
 });
