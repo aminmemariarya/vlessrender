@@ -1,15 +1,13 @@
-
-
 const express = require('express');
 const { WebSocketServer } = require('ws');
 const http = require('http');
+const net = require('net');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-const USER_ID = "1eb6f083-598d-462c-bd8d-1cbe80b551bc";   // ← حتما تغییر بده
+const USER_ID = "1eb6f083-598d-462c-bd8d-1cbe80b551bc";  // ← اینجا UUID جدیدت رو بذار
 
-// صفحه偽装 برای درخواست‌های معمولی
 const camouflageHTML = `
 <!DOCTYPE html>
 <html lang="fa">
@@ -20,72 +18,61 @@ const camouflageHTML = `
 </body>
 </html>`;
 
-// WebSocket Server
-const server = http.createServer(app);
+// مهم: اول WebSocket رو هندل کنیم
+const server = http.createServer((req, res) => {
+    // همه درخواست‌های HTTP معمولی → صفحه伪装
+    res.writeHead(200, {'Content-Type': 'text/html'});
+    res.end(camouflageHTML);
+});
+
 const wss = new WebSocketServer({ server });
 
-wss.on('connection', (ws, req) => {
-    console.log('New VLESS connection');
+wss.on('connection', (ws) => {
+    console.log('New client connected');
 
     ws.on('message', async (data) => {
         try {
             const buffer = new Uint8Array(data);
-            if (buffer[0] !== 0) {
-                ws.close();
-                return;
-            }
+            if (buffer[0] !== 0) return ws.close();
 
-            // UUID validation
-            const incomingUUID = buffer.slice(1, 17);
-            const expectedUUID = new Uint8Array(USER_ID.match(/[\da-f]{2}/gi).map(h => parseInt(h, 16)));
-            
-            if (incomingUUID.some((byte, i) => byte !== expectedUUID[i])) {
-                ws.close();
-                return;
-            }
+            // UUID Check
+            const incoming = buffer.slice(1, 17);
+            const expected = new Uint8Array(USER_ID.match(/[\da-f]{2}/gi).map(h => parseInt(h, 16)));
+            if (incoming.some((b,i) => b !== expected[i])) return ws.close();
 
-            // Parse target address and port (ساده‌سازی شده)
+            // Parse target
             const optLen = buffer[17];
-            const command = buffer[18 + optLen];
-            const portIndex = 18 + optLen + 1;
-            const targetPort = (buffer[portIndex] << 8) | buffer[portIndex + 1];
+            const cmd = buffer[18 + optLen];
+            const portIdx = 18 + optLen + 1;
+            const port = (buffer[portIdx] << 8) | buffer[portIdx + 1];
 
-            let idx = portIndex + 2;
-            const addrType = buffer[idx++];
-            let targetHost = "";
+            let idx = portIdx + 2;
+            const type = buffer[idx++];
+            let host = "";
 
-            if (addrType === 1) { // IPv4
-                targetHost = Array.from(buffer.slice(idx, idx+4)).join('.');
-            } else if (addrType === 2) { // Domain
+            if (type === 1) host = Array.from(buffer.slice(idx, idx+4)).join('.');
+            else if (type === 2) {
                 const len = buffer[idx++];
-                targetHost = new TextDecoder().decode(buffer.slice(idx, idx + len));
+                host = new TextDecoder().decode(buffer.slice(idx, idx+len));
             }
 
-            if (command === 1) {
-                const client = await new Promise((resolve) => {
-                    const net = require('net');
-                    const conn = net.connect(targetPort, targetHost, () => resolve(conn));
-                });
+            if (cmd !== 1) return ws.close();
 
-                ws.send(new Uint8Array([0, 0])); // VLESS success
+            const socket = net.connect(port, host, () => {
+                ws.send(new Uint8Array([0, 0])); // VLESS OK
+            });
 
-                // دوطرفه انتقال داده
-                client.on('data', chunk => ws.send(chunk));
-                ws.on('message', msg => client.write(msg));
+            socket.on('data', chunk => ws.send(chunk));
+            ws.on('message', msg => socket.write(msg));
 
-                client.on('close', () => ws.close());
-                ws.on('close', () => client.destroy());
-            }
+            socket.on('close', () => ws.close());
+            ws.on('close', () => socket.destroy());
         } catch (e) {
             ws.close();
         }
     });
 });
 
-app.get('*', (req, res) => {
-    res.send(camouflageHTML);
-});
-
 server.listen(PORT, () => {
-    console.log(`VLESS WS Server running on port ${PORT}`);
+    console.log(`VLESS Server running on port ${PORT}`);
 });
